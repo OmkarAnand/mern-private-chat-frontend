@@ -1,197 +1,105 @@
 import React, { useEffect, useState } from "react";
-import socket from "../socket"; // use single shared socket instance
+import socket from "../socket";
+import API from "../api/api"; // axios instance
 
 const ChatRoom = () => {
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState([]);
+  const user = JSON.parse(localStorage.getItem("user"));
+  const [allUsers, setAllUsers] = useState([]); // all users from DB
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState([]);
 
-  const user = JSON.parse(localStorage.getItem("user"));
-
-  // 🔹 When component mounts — connect and listen to events
+  // 🔹 Fetch all users
   useEffect(() => {
-    if (!socket || !user?._id) return;
+    const fetchUsers = async () => {
+      try {
+        const res = await API.get("/users");
+        setAllUsers(res.data);
+      } catch (err) {
+        console.error("Error fetching users:", err);
+      }
+    };
+    fetchUsers();
+  }, []);
 
-    // Notify backend that this user is connected
+  // 🔹 Socket listeners
+  useEffect(() => {
+    if (!user?._id) return;
+
     socket.emit("userConnected", user._id);
 
-    // Listen for updated online users
-    socket.on("onlineUsers", (users) => {
-      setOnlineUsers(users);
-    });
+    socket.on("onlineUsers", (users) => setOnlineUsers(users));
 
-    // Listen for broadcast/public messages
-    socket.on("receiveMessage", (data) => {
-      setMessages((prev) => [...prev, data]);
-    });
-
-    // Listen for private messages
     socket.on("receivePrivateMessage", (data) => {
-      setMessages((prev) => [...prev, data]);
+      setMessages(prev => [...prev, data]);
     });
 
-    // Cleanup listeners on unmount
     return () => {
       socket.off("onlineUsers");
-      socket.off("receiveMessage");
       socket.off("receivePrivateMessage");
     };
   }, [user?._id]);
 
-  // 🔹 Send message to selected user
+  // 🔹 Send message
   const sendMessage = () => {
     if (!message.trim() || !selectedUser) return;
 
     const msgData = {
       senderId: user._id,
       receiverId: selectedUser,
-      message,
+      message
     };
 
     socket.emit("privateMessage", msgData);
-    setMessages((prev) => [...prev, msgData]);
+    setMessages(prev => [...prev, msgData]);
     setMessage("");
   };
 
-  // 🔹 Handle logout
+  // 🔹 Logout
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     window.location.href = "/";
   };
 
+  // 🔹 Helper to get name by ID
+  const getUserName = (id) => {
+    if (id === user._id) return "You";
+    const u = allUsers.find(u => u._id === id);
+    return u ? u.name : id;
+  };
+
   return (
     <div style={{ display: "flex", height: "100vh" }}>
-      {/* ---------- Sidebar (Online Users) ---------- */}
-      <div
-        style={{
-          width: "25%",
-          borderRight: "1px solid #ccc",
-          padding: "10px",
-          backgroundColor: "#f9f9f9",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "10px",
-          }}
-        >
-          <h3>Online Users</h3>
-          <button
-            onClick={handleLogout}
-            style={{
-              backgroundColor: "red",
-              color: "white",
-              border: "none",
-              padding: "5px 10px",
-              borderRadius: "5px",
-              cursor: "pointer",
-            }}
+      {/* Sidebar */}
+      <div style={{ width: "25%", borderRight: "1px solid #ccc", padding: "10px", background: "#f9f9f9" }}>
+        <h3>Online Users</h3>
+        {onlineUsers.length === 0 && <p>No users online</p>}
+        {onlineUsers.map(id => (
+          <div
+            key={id}
+            style={{ padding: "5px", cursor: "pointer", backgroundColor: selectedUser === id ? "#d3f8d3" : "transparent" }}
+            onClick={() => setSelectedUser(id)}
           >
-            Logout
-          </button>
-        </div>
-
-        {onlineUsers.length === 0 ? (
-          <p>No users online</p>
-        ) : (
-          onlineUsers.map((id) => (
-            <div
-              key={id}
-              style={{
-                padding: "8px",
-                marginBottom: "5px",
-                borderRadius: "5px",
-                backgroundColor:
-                  selectedUser === id
-                    ? "#d3f8d3"
-                    : id === user._id
-                    ? "#e3e3e3"
-                    : "#fff",
-                cursor: id === user._id ? "default" : "pointer",
-              }}
-              onClick={() => id !== user._id && setSelectedUser(id)}
-            >
-              {id === user._id ? <b>You</b> : id}
-            </div>
-          ))
-        )}
+            {getUserName(id)}
+          </div>
+        ))}
+        <button style={{ marginTop: "20px", background: "red", color: "#fff" }} onClick={handleLogout}>Logout</button>
       </div>
 
-      {/* ---------- Chat Area ---------- */}
-      <div
-        style={{
-          flex: 1,
-          textAlign: "center",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
+      {/* Chat Area */}
+      <div style={{ flex: 1, textAlign: "center", marginTop: "20px" }}>
         <h2>Welcome, {user?.name}</h2>
-        {selectedUser ? (
-          <>
-            <h4>Chatting with: {selectedUser}</h4>
-            <div
-              style={{
-                border: "1px solid black",
-                padding: "10px",
-                width: "400px",
-                height: "300px",
-                overflowY: "auto",
-                marginBottom: "10px",
-              }}
-            >
-              {messages
-                .filter(
-                  (msg) =>
-                    (msg.senderId === user._id &&
-                      msg.receiverId === selectedUser) ||
-                    (msg.senderId === selectedUser &&
-                      msg.receiverId === user._id)
-                )
-                .map((msg, i) => (
-                  <div key={i} style={{ textAlign: msg.senderId === user._id ? "right" : "left" }}>
-                    <b>{msg.senderId === user._id ? "You" : msg.senderId}:</b>{" "}
-                    {msg.message}
-                  </div>
-                ))}
+        <div style={{ border: "1px solid black", width: "400px", margin: "auto", height: "300px", overflowY: "scroll", padding: "10px" }}>
+          {messages.map((msg, i) => (
+            <div key={i}>
+              <b>{getUserName(msg.senderId)}:</b> {msg.message}
             </div>
-
-            <div>
-              <input
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Type a message..."
-                style={{
-                  padding: "8px",
-                  width: "300px",
-                  marginRight: "10px",
-                }}
-              />
-              <button
-                onClick={sendMessage}
-                style={{
-                  padding: "8px 15px",
-                  backgroundColor: "#007bff",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "5px",
-                  cursor: "pointer",
-                }}
-              >
-                Send
-              </button>
-            </div>
-          </>
-        ) : (
-          <h3 style={{ color: "gray" }}>Select a user to start chatting</h3>
-        )}
+          ))}
+        </div>
+        <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Type a message..." />
+        <button onClick={sendMessage}>Send</button>
       </div>
     </div>
   );
