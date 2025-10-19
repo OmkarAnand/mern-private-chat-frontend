@@ -9,6 +9,7 @@ const ChatRoom = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+  const [currentSocket, setCurrentSocket] = useState(null);
 
   // 🔹 Fetch all users
   useEffect(() => {
@@ -22,7 +23,8 @@ const ChatRoom = () => {
     };
     fetchUsers();
   }, []);
-
+const newSocket = getSocket();
+    setCurrentSocket(newSocket);
   // 🔹 Socket listeners
   useEffect(() => {
     if (!user?._id) return;

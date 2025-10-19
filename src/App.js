@@ -13,7 +13,6 @@ function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/chat" element={<ChatRoom />} />
         <Route path="/chat" element={<PrivateRoute><ChatRoom /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
