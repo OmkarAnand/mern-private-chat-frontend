@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import socket from "../socket";
+//import socket from "../socket";
+import { getSocket } from "../socket";
 import API from "../api/api"; // axios instance
 
 const ChatRoom = () => {
@@ -23,29 +24,31 @@ const ChatRoom = () => {
     };
     fetchUsers();
   }, []);
-const newSocket = getSocket();
-    setCurrentSocket(newSocket);
+// const newSocket = socket();
+    // setCurrentSocket(newSocket);
   // 🔹 Socket listeners
   useEffect(() => {
     if (!user?._id) return;
+    const newSocket = getSocket(); 
+    setCurrentSocket(newSocket);
+    //socket.emit("userConnected", user._id);
 
-    socket.emit("userConnected", user._id);
+    newSocket.on("onlineUsers", (users) => setOnlineUsers(users));
 
-    socket.on("onlineUsers", (users) => setOnlineUsers(users));
-
-    socket.on("receivePrivateMessage", (data) => {
+    newSocket.on("receivePrivateMessage", (data) => {
       setMessages(prev => [...prev, data]);
     });
 
     return () => {
       socket.off("onlineUsers");
       socket.off("receivePrivateMessage");
+      newSocket.disconnect();
     };
   }, [user?._id]);
 
   // 🔹 Send message
   const sendMessage = () => {
-    if (!message.trim() || !selectedUser) return;
+    if (!message.trim() || !selectedUser || !currentSocket) return;
 
     const msgData = {
       senderId: user._id,
@@ -53,7 +56,7 @@ const newSocket = getSocket();
       message
     };
 
-    socket.emit("privateMessage", msgData);
+    currentSocket.emit("privateMessage", msgData);
     setMessages(prev => [...prev, msgData]);
     setMessage("");
   };
