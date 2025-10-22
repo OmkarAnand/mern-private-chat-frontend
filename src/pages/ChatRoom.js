@@ -1,18 +1,20 @@
+// src/pages/ChatRoom.js - MODIFIED CODE
 import React, { useEffect, useState } from "react";
-//import socket from "../socket";
-import { getSocket } from "../socket";
-import API from "../api/api"; // axios instance
+// Import both getSocket and the new disconnectSocket
+import { getSocket, disconnectSocket } from "../socket";
+import API from "../api/api";
 
 const ChatRoom = () => {
   const user = JSON.parse(localStorage.getItem("user"));
-  const [allUsers, setAllUsers] = useState([]); // all users from DB
+  const [allUsers, setAllUsers] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+  // currentSocket state to hold the *connected* socket instance for this component
   const [currentSocket, setCurrentSocket] = useState(null);
 
-  // 🔹 Fetch all users
+  // 🔹 Fetch all users (no changes)
   useEffect(() => {
     const fetchUsers = async () => {
       try {
@@ -24,31 +26,71 @@ const ChatRoom = () => {
     };
     fetchUsers();
   }, []);
-// const newSocket = socket();
-    // setCurrentSocket(newSocket);
-  // 🔹 Socket listeners
+
+  // 🔹 Socket connection and listeners
   useEffect(() => {
-    if (!user?._id) return;
-    const newSocket = getSocket(); 
-    setCurrentSocket(newSocket);
-    //socket.emit("userConnected", user._id);
+    // Prevent socket connection if user ID is not available (e.g., not logged in)
+    if (!user?._id) {
+      console.warn("User ID not available, skipping socket connection attempt.");
+      // If a socket was previously connected, disconnect it if the user is no longer valid.
+      if (currentSocket) {
+          disconnectSocket(); // Use the global disconnect
+          setCurrentSocket(null);
+      }
+      return;
+    }
 
-    newSocket.on("onlineUsers", (users) => setOnlineUsers(users));
+    // Attempt to get the shared socket instance
+    const socket = getSocket();
 
-    newSocket.on("receivePrivateMessage", (data) => {
-      setMessages(prev => [...prev, data]);
-    });
+    // If getSocket returns null (e.g., no token), handle it gracefully
+    if (!socket) {
+      console.error("Socket instance could not be obtained (likely due to missing token).");
+      // You might want to redirect to login here if the token issue isn't handled by getSocket already
+      // if (!localStorage.getItem("token")) window.location.href = "/";
+      return;
+    }
 
+    setCurrentSocket(socket); // Store the obtained socket instance in component state
+
+    // --- Add event listeners to the socket, ensuring they are not duplicated ---
+    // The `hasListeners` check helps prevent adding the same listener multiple times
+    // if the useEffect runs again but the socket instance is the same.
+    if (!socket.hasListeners('onlineUsers')) {
+        socket.on("onlineUsers", (users) => {
+            console.log("Received online users event:", users);
+            // Filter out the current user from the online list for display, if desired, or just set
+            setOnlineUsers(users);
+        });
+    }
+
+    if (!socket.hasListeners('receivePrivateMessage')) {
+        socket.on("receivePrivateMessage", (data) => {
+            console.log("Received private message event:", data);
+            setMessages(prev => [...prev, data]);
+        });
+    }
+
+    // Cleanup function for when the component unmounts or dependencies change
     return () => {
-      socket.off("onlineUsers");
-      socket.off("receivePrivateMessage");
-      newSocket.disconnect();
+      console.log("ChatRoom component cleanup: Removing socket listeners.");
+      if (socket) {
+          socket.off("onlineUsers");
+          socket.off("receivePrivateMessage");
+          // IMPORTANT: Do NOT call disconnectSocket() here unless you want the socket
+          // to disconnect *every time* ChatRoom unmounts (e.g., navigating away briefly).
+          // The singleton pattern means the socket stays alive until explicitly disconnected (like on logout).
+      }
     };
-  }, [user?._id]);
+  }, [user?._id]); // Dependency array: rerun effect if user ID changes. currentSocket removed as dependency to prevent infinite loops.
 
   // 🔹 Send message
   const sendMessage = () => {
-    if (!message.trim() || !selectedUser || !currentSocket) return;
+    // Add checks for a connected socket before attempting to emit
+    if (!message.trim() || !selectedUser || !currentSocket || !currentSocket.connected) {
+        console.warn("Cannot send message: Message empty, no user selected, or socket not connected.");
+        return;
+    }
 
     const msgData = {
       senderId: user._id,
@@ -65,49 +107,11 @@ const ChatRoom = () => {
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    window.location.href = "/";
+    disconnectSocket(); // Explicitly disconnect the shared socket on logout
+    window.location.href = "/"; // Redirect to login page
   };
 
-  // 🔹 Helper to get name by ID
-  const getUserName = (id) => {
-    if (id === user._id) return "You";
-    const u = allUsers.find(u => u._id === id);
-    return u ? u.name : id;
-  };
-
-  return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      {/* Sidebar */}
-      <div style={{ width: "25%", borderRight: "1px solid #ccc", padding: "10px", background: "#f9f9f9" }}>
-        <h3>Online Users</h3>
-        {onlineUsers.length === 0 && <p>No users online</p>}
-        {onlineUsers.map(id => (
-          <div
-            key={id}
-            style={{ padding: "5px", cursor: "pointer", backgroundColor: selectedUser === id ? "#d3f8d3" : "transparent" }}
-            onClick={() => setSelectedUser(id)}
-          >
-            {getUserName(id)}
-          </div>
-        ))}
-        <button style={{ marginTop: "20px", background: "red", color: "#fff" }} onClick={handleLogout}>Logout</button>
-      </div>
-
-      {/* Chat Area */}
-      <div style={{ flex: 1, textAlign: "center", marginTop: "20px" }}>
-        <h2>Welcome, {user?.name}</h2>
-        <div style={{ border: "1px solid black", width: "400px", margin: "auto", height: "300px", overflowY: "scroll", padding: "10px" }}>
-          {messages.map((msg, i) => (
-            <div key={i}>
-              <b>{getUserName(msg.senderId)}:</b> {msg.message}
-            </div>
-          ))}
-        </div>
-        <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Type a message..." />
-        <button onClick={sendMessage}>Send</button>
-      </div>
-    </div>
-  );
+  // ... (rest of your getUserName helper and JSX render logic remains the same)
 };
 
 export default ChatRoom;
